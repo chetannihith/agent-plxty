@@ -2,16 +2,25 @@
 Streamlit application for the Resume Optimizer.
 Multi-Agent Resume Optimization with 10 agents and 6-stage pipeline.
 """
-import streamlit as st
 import os
+import warnings
+
+# CRITICAL: Disable OpenTelemetry to avoid context management issues in Streamlit
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ['OTEL_PYTHON_CONTEXT'] = 'contextvars_context'
+
+# Suppress all OpenTelemetry warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='opentelemetry')
+warnings.filterwarnings('ignore', message='.*Failed to detach context.*')
+
+import logging
+logging.getLogger("opentelemetry").setLevel(logging.ERROR)
+
+# Now import other modules
+import streamlit as st
 from pathlib import Path
 import json
 import asyncio
-import warnings
-
-# Disable OpenTelemetry context warnings
-os.environ['OTEL_PYTHON_CONTEXT'] = 'contextvars_context'
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='opentelemetry')
 
 from local_rag.document_processor import DocumentProcessor, save_uploaded_file
 from local_rag.vector_store import LocalVectorStore
@@ -85,13 +94,35 @@ def main():
         
         with col2:
             st.subheader("🔗 Job Posting")
-            job_url = st.text_input(
-                "Job Posting URL",
-                placeholder="https://example.com/job-posting",
-                help="URL of the job you're applying for"
+            
+            # Add input method selector
+            input_method = st.radio(
+                "Input method:",
+                ["URL", "Paste Description"],
+                horizontal=True,
+                help="Choose URL for automatic scraping or paste text if scraping fails"
             )
+            
+            if input_method == "URL":
+                job_url = st.text_input(
+                    "Job Posting URL",
+                    placeholder="https://www.linkedin.com/jobs/view/... or https://indeed.com/...",
+                    help="LinkedIn, Indeed, or company career pages"
+                )
+                job_description_text = None
+            else:
+                job_url = None
+                job_description_text = st.text_area(
+                    "Paste Job Description",
+                    height=200,
+                    placeholder="Paste the full job description here including:\n- Job title\n- Required skills\n- Responsibilities\n- Qualifications",
+                    help="Use this if URL scraping fails or for offline job postings"
+                )
         
-        if resume_file and job_url:
+        # Check if we have both resume and job info (either URL or pasted text)
+        has_job_info = (job_url and job_url.strip()) or (job_description_text and job_description_text.strip())
+        
+        if resume_file and has_job_info:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
                 
                 # Save uploaded resume
@@ -153,7 +184,13 @@ def main():
                         stage_indicators[0].write("🔄 Stage 1: Running...")
                         status_text.write("Extracting job description...")
                         
-                        job_data = workflow.job_extractor.extract_job_description(job_url)
+                        # Extract job data based on input method
+                        if job_url:
+                            job_data = workflow.job_extractor.extract_job_description(job_url)
+                        else:
+                            # Parse pasted text using CrewAI
+                            st.info("📝 Processing pasted job description...")
+                            job_data = workflow.job_extractor._parse_pasted_text(job_description_text)
                         
                         stage_indicators[0].write("✅ Stage 1: Complete")
                         progress_bar.progress(25)
@@ -229,24 +266,17 @@ Please analyze this job description and optimize the resume accordingly.
                                         
                                         # Extract resume_content from markdown_formatter_agent
                                         if event.author == 'markdown_formatter_agent' and hasattr(event, 'content') and event.content:
-                                            import json
-                                            content_text = event.content.parts[0].text if event.content.parts else ""
-                                            print(f"   📝 Markdown content length: {len(content_text)} chars")
+                                            # Extract text from event content
+                                            content_text = ""
+                                            if event.content.parts:
+                                                content_text = event.content.parts[0].text if hasattr(event.content.parts[0], 'text') else ""
                                             
-                                            # Try to parse JSON response
-                                            try:
-                                                if '```json' in content_text:
-                                                    json_str = content_text.split('```json')[1].split('```')[0].strip()
-                                                    parsed = json.loads(json_str)
-                                                    if 'markdown_content' in parsed:
-                                                        final_state['resume_content'] = parsed['markdown_content']
-                                                        print(f"   ✅ Extracted resume_content from JSON")
-                                                elif content_text.strip().startswith('<style>'):
-                                                    final_state['resume_content'] = content_text
-                                                    print(f"   ✅ Extracted resume_content (HTML)")
-                                            except Exception as parse_err:
-                                                print(f"   ⚠️ Failed to parse: {parse_err}")
-                                                final_state['resume_content'] = content_text
+                                            if content_text and content_text.strip():
+                                                print(f"   📝 Captured resume content: {len(content_text)} chars")
+                                                final_state['resume_content'] = content_text.strip()
+                                                print(f"   ✅ Saved resume_content from event")
+                                            else:
+                                                print(f"   ⚠️ Empty content from markdown_formatter_agent")
                                     
                                     if hasattr(event, 'content') and event.content:
                                         content_preview = str(event.content)[:100]
@@ -265,7 +295,7 @@ Please analyze this job description and optimize the resume accordingly.
                                 
                                 # Also check the session directly after workflow (async)
                                 try:
-                                    import asyncio
+                                    # Use module-level asyncio import
                                     session = asyncio.run(session_service.get_session(
                                         app_name=app_name,
                                         user_id=user_id,
@@ -301,7 +331,29 @@ Please analyze this job description and optimize the resume accordingly.
                         print(f"🔍 Checking for resume content in state...")
                         print(f"📦 Available state keys: {list(final_state.keys())}")
                         
-                        resume_content = final_state.get("resume_content", "# No resume content generated")
+                        # Try multiple sources for resume content
+                        resume_content = final_state.get("resume_content")
+                        
+                        # If not found, try to get it from session state one more time
+                        if not resume_content or resume_content == "# No resume content generated":
+                            try:
+                                # Use module-level asyncio import
+                                session = asyncio.run(session_service.get_session(
+                                    app_name=app_name,
+                                    user_id=user_id,
+                                    session_id=session_id
+                                ))
+                                if session and hasattr(session, 'state'):
+                                    resume_content = session.state.get("resume_content")
+                                    if resume_content:
+                                        print(f"✅ Retrieved resume_content from session (fallback)")
+                            except Exception as e:
+                                print(f"⚠️ Fallback session retrieval failed: {e}")
+                        
+                        # Final fallback
+                        if not resume_content:
+                            resume_content = "# No Resume Generated\n\nPlease try again or check the console for errors."
+                        
                         print(f"📄 Resume content type: {type(resume_content)}")
                         print(f"📄 Resume content preview: {str(resume_content)[:200]}...")
                         
