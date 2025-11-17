@@ -69,10 +69,24 @@ class JobDescriptionExtractorCrew:
         )
     
     def _scrape_webpage(self, url: str) -> str:
-        """Actually scrape the webpage content"""
+        """Actually scrape the webpage content with enhanced LinkedIn support"""
+        
+        # Special handling for LinkedIn
+        if "linkedin.com" in url:
+            return self._scrape_linkedin(url)
+        
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
             }
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
@@ -97,6 +111,93 @@ class JobDescriptionExtractorCrew:
         except Exception as e:
             print(f"❌ Web scraping failed: {e}")
             return f"Failed to scrape URL: {url}. Error: {str(e)}"
+    
+    def _scrape_linkedin(self, url: str) -> str:
+        """Enhanced LinkedIn scraping with anti-bot measures"""
+        import time
+        
+        # LinkedIn-specific headers to avoid blocking
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0',
+        }
+        
+        try:
+            # Add small delay to avoid rate limiting
+            time.sleep(1)
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Extract structured data from LinkedIn
+            job_title = "Software Engineer"  # Default
+            company = "Unknown Company"
+            location = "Remote"
+            description = ""
+            
+            # Try multiple selectors for job title (LinkedIn changes these)
+            title_tag = (soup.find('h1', class_='top-card-layout__title') or
+                        soup.find('h1', class_='topcard__title') or
+                        soup.find('h1', class_='job-title') or
+                        soup.find('h1'))
+            if title_tag:
+                job_title = title_tag.get_text(strip=True)
+            
+            # Extract company
+            company_tag = (soup.find('a', class_='topcard__org-name-link') or
+                          soup.find('span', class_='topcard__flavor') or
+                          soup.find('a', class_='sub-nav-cta__optional-url'))
+            if company_tag:
+                company = company_tag.get_text(strip=True)
+            
+            # Extract location
+            location_tag = (soup.find('span', class_='topcard__flavor--bullet') or
+                           soup.find('span', class_='sub-nav-cta__meta-text'))
+            if location_tag:
+                location = location_tag.get_text(strip=True)
+            
+            # Extract description
+            desc_div = (soup.find('div', class_='show-more-less-html__markup') or
+                       soup.find('div', class_='description__text') or
+                       soup.find('div', {'id': 'job-details'}))
+            
+            if desc_div:
+                description = desc_div.get_text(separator='\n', strip=True)
+            else:
+                # Fallback: get all text from body
+                body = soup.find('body')
+                if body:
+                    # Remove scripts and styles
+                    for element in body(['script', 'style', 'nav', 'footer']):
+                        element.decompose()
+                    description = body.get_text(separator='\n', strip=True)
+            
+            # Combine structured data
+            full_text = f"""
+Job Title: {job_title}
+Company: {company}
+Location: {location}
+
+Job Description:
+{description}
+"""
+            print(f"✅ Scraped LinkedIn job: {job_title} at {company} ({len(full_text)} chars)")
+            return full_text
+            
+        except Exception as e:
+            print(f"⚠️ LinkedIn scraping failed: {e}")
+            print("Using fallback: generic template")
+            return f"Failed to scrape LinkedIn URL: {url}\nError: {str(e)}"
     
     def extract_job_description(self, job_url: str) -> Dict[str, Any]:
         """
@@ -279,11 +380,109 @@ class JobDescriptionExtractorCrew:
         keywords = [w for w in set(words) if w not in stopwords]
         return keywords[:25]  # Return top 25
     
+    def _parse_pasted_text(self, pasted_text: str) -> Dict[str, Any]:
+        """
+        Parse manually pasted job description text
+        
+        Args:
+            pasted_text: Job description text pasted by user
+            
+        Returns:
+            Structured job data
+        """
+        print(f"📝 Parsing pasted job description ({len(pasted_text)} chars)")
+        
+        # Use the same CrewAI parsing logic as web scraping
+        if len(pasted_text) < 50:
+            print("⚠️ Very short job description, using fallback")
+            return self._create_fallback_job_data("pasted_text")
+        
+        # Define parsing task for pasted text
+        parse_task = Task(
+            description=f"""
+            Parse this manually provided job description into structured format:
+            
+            {pasted_text[:3000]}
+            
+            Extract:
+            1. Job title
+            2. Company name (if mentioned)
+            3. Location (if mentioned)
+            4. Required technical skills (list)
+            5. Preferred skills (list)
+            6. Key responsibilities (list)
+            7. Qualifications/requirements (list)
+            8. Important keywords (20-30 words)
+            
+            Format as JSON with keys: job_title, company, location, required_skills, 
+            preferred_skills, responsibilities, qualifications, keywords, job_summary
+            """,
+            agent=self.crew.agents[1],  # Use parser agent
+            expected_output="Structured JSON with job details"
+        )
+        
+        # Update crew tasks
+        self.crew.tasks = [parse_task]
+        
+        try:
+            result = self.crew.kickoff()
+            
+            # Parse result
+            import json
+            result_str = str(result)
+            job_data = None
+            
+            try:
+                # Try direct JSON parsing
+                job_data = json.loads(result_str)
+            except:
+                try:
+                    # Try extracting JSON from markdown code blocks
+                    json_match = re.search(r'```json\s*({.*?})\s*```', result_str, re.DOTALL)
+                    if json_match:
+                        job_data = json.loads(json_match.group(1))
+                    elif '{' in result_str:
+                        start = result_str.index('{')
+                        end = result_str.rindex('}') + 1
+                        job_data = json.loads(result_str[start:end])
+                except Exception as parse_err:
+                    print(f"⚠️ JSON parsing failed: {parse_err}")
+            
+            if not job_data:
+                # Fallback: manual extraction
+                job_data = {
+                    "job_title": "Position from pasted text",
+                    "company": "See job description",
+                    "location": "Not specified",
+                    "job_summary": pasted_text[:500],
+                    "required_skills": self._extract_skills_from_text(pasted_text),
+                    "preferred_skills": [],
+                    "responsibilities": [],
+                    "qualifications": [],
+                    "keywords": self._extract_keywords_from_text(pasted_text),
+                    "raw_output": pasted_text
+                }
+            
+            # Ensure required fields
+            job_data.setdefault('required_skills', [])
+            job_data.setdefault('keywords', [])
+            job_data.setdefault('job_title', 'Software Engineer')
+            job_data.setdefault('company', 'Unknown Company')
+            
+            print(f"✅ Parsed {len(job_data.get('required_skills', []))} skills from pasted text")
+            return job_data
+            
+        except Exception as e:
+            print(f"❌ Error parsing pasted text: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._create_fallback_job_data("pasted_text")
+    
     def _create_fallback_job_data(self, job_url: str) -> Dict[str, Any]:
         """Create fallback job data when scraping fails"""
         return {
             "job_title": "Software Engineer",
-            "company": "Tech Company (from " + job_url.split('/')[2] + ")",
+            "company": "Tech Company (from " + job_url.split('/')[2] + ")" if '/' in job_url else "Tech Company",
             "location": "Remote/Hybrid",
             "job_summary": "Software engineering position requiring technical skills and experience.",
             "required_skills": ["Python", "JavaScript", "SQL", "Git", "REST APIs"],

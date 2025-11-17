@@ -111,34 +111,60 @@ OUTPUT: Return ONLY the markdown content, no JSON wrapper, no code blocks.
             
             # Extract text from response
             if response.text:
-                resume_content = response.text
+                resume_content = response.text.strip()
                 
                 # Clean up any markdown code blocks if present
                 if "```" in resume_content:
                     # Remove ```markdown or ```json wrappers
                     resume_content = resume_content.replace("```markdown", "").replace("```json", "").replace("```", "").strip()
                 
-                # Save to session state
+                # CRITICAL: Save to session state
                 ctx.session.state["resume_content"] = resume_content
                 
                 print(f"✅ [markdown_formatter_agent] Generated {len(resume_content)} character resume")
                 print(f"📄 Preview: {resume_content[:200]}...")
+                
+                # Yield event with content
+                yield Event(
+                    invocation_id=ctx.invocation_id,
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(text=resume_content)]
+                    )
+                )
+                return  # Early return after successful generation
+                
             else:
                 print("❌ [markdown_formatter_agent] No response from LLM")
                 ctx.session.state["resume_content"] = "# Error\n\nFailed to generate resume."
+                
+                yield Event(
+                    invocation_id=ctx.invocation_id,
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(text="Failed to generate resume")]
+                    )
+                )
+                return
         
         except Exception as e:
             print(f"❌ [markdown_formatter_agent] Error: {e}")
             import traceback
             traceback.print_exc()
-            ctx.session.state["resume_content"] = f"# Error\n\nFailed to generate resume: {str(e)}"
-        
-        # Yield completion event
-        yield Event(
-            invocation_id=ctx.invocation_id,
-            author=self.name,
-            content=None
-        )
+            
+            error_msg = f"# Error\n\nFailed to generate resume: {str(e)}"
+            ctx.session.state["resume_content"] = error_msg
+            
+            yield Event(
+                invocation_id=ctx.invocation_id,
+                author=self.name,
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=error_msg)]
+                )
+            )
 
 
 def create_markdown_formatter_agent(model: str = "gemini-2.0-flash"):
