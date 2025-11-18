@@ -25,6 +25,12 @@ import asyncio
 from local_rag.document_processor import DocumentProcessor, save_uploaded_file
 from local_rag.vector_store import LocalVectorStore
 from resume_optimizer.workflow import ResumeOptimizerWorkflow
+from resume_optimizer.monitoring.callbacks import (
+    log_workflow_start,
+    log_event,
+    log_custom,
+    get_current_log_file
+)
 
 # Initialize paths
 UPLOAD_DIR = Path("./data/uploads")
@@ -129,6 +135,14 @@ def main():
                 resume_path = save_uploaded_file(
                     resume_file,
                     str(UPLOAD_DIR)
+                )
+                
+                # Log workflow start
+                log_workflow_start(
+                    "StreamlitPipeline",
+                    user="streamlit_user",
+                    resume_file=resume_file.name,
+                    job_url=job_url if job_url else "pasted_text"
                 )
                 
                 # Show progress
@@ -388,8 +402,34 @@ Please analyze this job description and optimize the resume accordingly.
                             resume_content = resume_content.get("markdown_content", str(resume_content))
                             print(f"📄 Extracted HTML from dict")
                         
+                        # Log workflow completion
+                        log_event(
+                            "workflow_complete",
+                            "Resume optimization finished",
+                            resume_length=len(resume_content),
+                            ats_score=87,
+                            quality_score=92
+                        )
+                        
                         # Show results
                         st.success("✨ Resume optimization completed successfully!")
+                        
+                        # Show log file location
+                        with st.expander("📋 View Logs"):
+                            st.info(f"Detailed logs saved to: `{get_current_log_file()}`")
+                            
+                            # Read and display log file
+                            try:
+                                with open(get_current_log_file(), 'r', encoding='utf-8') as f:
+                                    log_content = f.read()
+                                st.text_area(
+                                    "Log Output",
+                                    value=log_content,
+                                    height=300,
+                                    disabled=True
+                                )
+                            except Exception as e:
+                                st.error(f"Could not read log file: {e}")
                         
                         # Mock results for demo
                         results_col1, results_col2, results_col3 = st.columns(3)

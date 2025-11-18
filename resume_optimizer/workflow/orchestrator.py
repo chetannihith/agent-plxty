@@ -1,16 +1,17 @@
 """
-Resume Optimization Workflow Orchestrator
+Resume Optimization Workflow Orchestrator with Callbacks
 
 6-stage pipeline with sequential and parallel execution:
 - Stage 1: Job Description Extraction (Sequential)
 - Stage 2: Profile Analysis (3 Parallel Agents)
 - Stage 3: Content Alignment (Sequential)
 - Stage 4: ATS Optimization (2 Parallel Agents)
-- Stage 5: LaTeX Generation (Sequential)
+- Stage 5: Markdown Generation (Sequential)
 - Stage 6: Quality Assurance (2 Parallel Agents)
 """
 from google.adk.agents import SequentialAgent, ParallelAgent
 from typing import Dict, Any
+import time
 
 from ..agents.job_description_extractor import JobDescriptionExtractorCrew
 from ..agents.profile_rag_agent import ProfileRAGAgent
@@ -22,6 +23,19 @@ from ..agents.keyword_enhancer_agent import create_keyword_enhancer_agent
 from ..agents.markdown_formatter_agent import create_markdown_formatter_agent
 from ..agents.quality_validator_agent import create_quality_validator_agent
 from ..agents.formatting_checker_agent import FormattingCheckerAgent
+
+# Import callbacks
+from ..monitoring.callbacks import (
+    log_workflow_start,
+    log_workflow_end,
+    log_agent_start,
+    log_agent_end,
+    log_agent_error,
+    log_state_update,
+    log_stage_transition,
+    log_custom,
+    get_current_log_file
+)
 
 
 class ResumeOptimizerWorkflow:
@@ -57,8 +71,11 @@ class ResumeOptimizerWorkflow:
     def _init_agents(self):
         """Initialize all 10 agents"""
         
+        log_custom("Initializing agents...", level="INFO")
+        
         # Stage 1: Job Description Extraction (CrewAI)
         self.job_extractor = JobDescriptionExtractorCrew()
+        log_custom("Initialized job_extractor (CrewAI)", level="INFO")
         
         # Stage 2: Profile Analysis (3 Parallel Google ADK Agents)
         self.profile_rag = ProfileRAGAgent(
@@ -66,20 +83,25 @@ class ResumeOptimizerWorkflow:
         )
         self.skills_matcher = create_skills_matcher_agent(model=self.model)
         self.experience_relevance = create_experience_relevance_agent(model=self.model)
+        log_custom("Initialized Stage 2 agents (Profile Analysis)", level="INFO")
         
         # Stage 3: Content Alignment (Sequential)
         self.content_alignment = create_content_alignment_agent(model=self.model)
+        log_custom("Initialized content_alignment_agent", level="INFO")
         
         # Stage 4: ATS Optimization (2 Parallel)
         self.ats_optimizer = create_ats_optimizer_agent(model=self.model)
         self.keyword_enhancer = create_keyword_enhancer_agent(model=self.model)
+        log_custom("Initialized Stage 4 agents (ATS Optimization)", level="INFO")
         
-        # Stage 5: LaTeX Generation (Sequential)
+        # Stage 5: Markdown Generation (Sequential)
         self.markdown_formatter = create_markdown_formatter_agent(model=self.model)
+        log_custom("Initialized markdown_formatter_agent", level="INFO")
         
         # Stage 6: Quality Assurance (2 Parallel)
         self.quality_validator = create_quality_validator_agent(model=self.model)
         self.formatting_checker = FormattingCheckerAgent()
+        log_custom("Initialized Stage 6 agents (Quality Assurance)", level="INFO")
     
     def _build_workflow(self) -> SequentialAgent:
         """
@@ -90,9 +112,11 @@ class ResumeOptimizerWorkflow:
         2. [Parallel]   Profile RAG + Skills Matcher + Experience Relevance
         3. [Sequential] Content Alignment
         4. [Parallel]   ATS Optimizer + Keyword Enhancer
-        5. [Sequential] LaTeX Formatter
+        5. [Sequential] Markdown Formatter
         6. [Parallel]   Quality Validator + Formatting Checker
         """
+        
+        log_custom("Building workflow...", level="INFO")
         
         # Stage 2: Parallel profile analysis
         stage2_parallel = ParallelAgent(
@@ -137,6 +161,7 @@ class ResumeOptimizerWorkflow:
             ]
         )
         
+        log_custom("Workflow built successfully", level="INFO")
         return workflow
     
     async def run_workflow(
@@ -146,7 +171,7 @@ class ResumeOptimizerWorkflow:
         resume_path: str
     ) -> Dict[str, Any]:
         """
-        Execute the complete 6-stage workflow
+        Execute the complete 6-stage workflow with callbacks
         
         Args:
             ctx: Google ADK context object
@@ -155,57 +180,111 @@ class ResumeOptimizerWorkflow:
         
         Returns:
             Dict with workflow results including:
-            - latex_content: Generated LaTeX resume
+            - resume_content: Generated Markdown resume
             - ats_analysis: ATS score and recommendations
             - quality_report: Quality validation report
             - formatting_report: Formatting validation report
         """
         
-        print("🚀 Starting Resume Optimization Workflow")
-        print("=" * 60)
+        # Start workflow
+        log_workflow_start(
+            "ResumeOptimizer",
+            job_url=job_url,
+            resume_path=resume_path,
+            model=self.model,
+            log_file=get_current_log_file()
+        )
         
-        # Stage 1: Job Description Extraction (CrewAI - called separately)
-        print("\n📥 Stage 1: Job Description Extraction")
-        job_data = self.job_extractor.extract_job_description(job_url)
-        ctx.session.state["job_description"] = job_data
-        print(f"✅ Extracted job: {job_data.get('title', 'N/A')}")
-        
-        # Initialize resume data in state
-        ctx.session.state["resume_path"] = resume_path
-        
-        # Stages 2-6: Execute Google ADK workflow
-        print("\n🔄 Executing Stages 2-6...")
-        result = await self.workflow.run_async(ctx)
-        
-        # Collect final results
-        final_results = {
-            "job_description": ctx.session.state.get("job_description", {}),
-            "profile_data": ctx.session.state.get("profile_data", {}),
-            "skills_analysis": ctx.session.state.get("skills_analysis", {}),
-            "experience_scores": ctx.session.state.get("experience_scores", {}),
-            "aligned_data": ctx.session.state.get("aligned_data", {}),
-            "ats_analysis": ctx.session.state.get("ats_analysis", {}),
-            "keyword_enhancements": ctx.session.state.get("keyword_enhancements", {}),
-            "latex_content": ctx.session.state.get("latex_content", {}),
-            "quality_report": ctx.session.state.get("quality_report", {}),
-            "formatting_report": ctx.session.state.get("formatting_report", {})
-        }
-        
-        print("\n" + "=" * 60)
-        print("✅ Workflow Complete!")
-        
-        # Print summary
-        ats_score = final_results["ats_analysis"].get("ats_score", {}).get("total_score", 0)
-        quality_score = final_results["quality_report"].get("overall_quality_score", 0)
-        
-        print(f"\n📊 Final Scores:")
-        print(f"   ATS Score: {ats_score}/100")
-        print(f"   Quality Score: {quality_score}/100")
-        
-        validation_status = final_results["quality_report"].get("validation_status", "UNKNOWN")
-        print(f"   Status: {validation_status}")
-        
-        return final_results
+        try:
+            # Stage 1: Job Description Extraction
+            log_stage_transition("START", "Stage 1: Job Extraction")
+            log_agent_start("job_description_extractor", stage="1")
+            
+            start_time = time.time()
+            job_data = self.job_extractor.extract_job_description(job_url)
+            execution_time = time.time() - start_time
+            
+            ctx.session.state["job_description"] = job_data
+            
+            log_agent_end(
+                "job_description_extractor",
+                execution_time=execution_time,
+                job_title=job_data.get('job_title', 'N/A'),
+                company=job_data.get('company', 'N/A'),
+                skills_count=len(job_data.get('required_skills', []))
+            )
+            log_state_update(
+                "job_description_extractor",
+                state_keys=["job_description"]
+            )
+            
+            # Initialize resume data in state
+            ctx.session.state["resume_path"] = resume_path
+            
+            # Stages 2-6: Execute Google ADK workflow
+            log_stage_transition("Stage 1", "Stages 2-6: ADK Workflow")
+            log_agent_start("adk_workflow", stage="2-6")
+            
+            start_time = time.time()
+            result = await self.workflow.run_async(ctx)
+            execution_time = time.time() - start_time
+            
+            log_agent_end(
+                "adk_workflow",
+                execution_time=execution_time,
+                stages_completed="2-6"
+            )
+            
+            # Collect final results
+            final_results = {
+                "job_description": ctx.session.state.get("job_description", {}),
+                "profile_data": ctx.session.state.get("profile_data", {}),
+                "skills_analysis": ctx.session.state.get("skills_analysis", {}),
+                "experience_scores": ctx.session.state.get("experience_scores", {}),
+                "aligned_data": ctx.session.state.get("aligned_data", {}),
+                "ats_analysis": ctx.session.state.get("ats_analysis", {}),
+                "keyword_enhancements": ctx.session.state.get("keyword_enhancements", {}),
+                "resume_content": ctx.session.state.get("resume_content", ""),
+                "quality_report": ctx.session.state.get("quality_report", {}),
+                "formatting_report": ctx.session.state.get("formatting_report", {})
+            }
+            
+            log_state_update(
+                "workflow",
+                state_keys=list(final_results.keys())
+            )
+            
+            # Extract scores for logging
+            ats_analysis = final_results.get("ats_analysis", {})
+            ats_score = ats_analysis.get("ats_score", {}).get("total_score", 0) if isinstance(ats_analysis, dict) else 0
+            
+            quality_report = final_results.get("quality_report", {})
+            quality_score = quality_report.get("overall_quality_score", 0) if isinstance(quality_report, dict) else 0
+            validation_status = quality_report.get("validation_status", "UNKNOWN") if isinstance(quality_report, dict) else "UNKNOWN"
+            
+            log_workflow_end(
+                "ResumeOptimizer",
+                status="SUCCESS",
+                ats_score=ats_score,
+                quality_score=quality_score,
+                validation_status=validation_status,
+                log_file=get_current_log_file()
+            )
+            
+            return final_results
+            
+        except Exception as e:
+            log_agent_error(
+                "workflow",
+                error=str(e),
+                traceback=str(e.__traceback__)
+            )
+            log_workflow_end(
+                "ResumeOptimizer",
+                status="FAILED",
+                error=str(e)
+            )
+            raise
     
     def get_workflow_summary(self) -> Dict[str, Any]:
         """Get summary of workflow configuration"""
@@ -214,6 +293,7 @@ class ResumeOptimizerWorkflow:
             "stages": 6,
             "parallel_stages": 3,
             "sequential_stages": 3,
+            "log_file": get_current_log_file(),
             "agent_breakdown": {
                 "crewai_agents": 1,
                 "google_adk_agents": 9
