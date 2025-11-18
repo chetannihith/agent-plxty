@@ -1,8 +1,10 @@
 """
 Stage 4: Keyword Enhancer Agent (Parallel Agent 2)
-Enhances keyword usage and density
+Enhances keyword usage and density using MCP protocol
 """
 from google.adk.agents import LlmAgent
+from resume_optimizer.mcp_client import mcp_client
+import asyncio
 
 
 def create_keyword_enhancer_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
@@ -28,7 +30,11 @@ def create_keyword_enhancer_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         
         **Keyword Enhancement Strategy:**
         
-        **1. Keyword Extraction:**
+        **1. MCP Tool Usage:**
+        You have access to the extract_keywords MCP tool to analyze job descriptions.
+        Use this tool to get structured keyword data before optimization.
+        
+        **2. Keyword Extraction:**
         - Identify top 30 keywords from job description
         - Categorize by: Technical, Business, Industry, Soft Skills
         - Note frequency in job posting

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "resume-optimizer-tools": {
+      "command": "python",
+      "args": ["mcp_servers/resume_tools_server.py"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "description": "MCP server for resume optimization tools including ATS scoring, keyword extraction, LaTeX validation, and resume parsing"
+    }
+  },
+  "version": "1.0",
+  "protocol": "json-rpc-2.0"
+}

@@ -1,24 +1,26 @@
 """
-Stage 5: LaTeX Formatter Agent (Sequential)
-Generates professional LaTeX resume
+Stage 5: Markdown Formatter Agent (Sequential)
+Generates professional Markdown resume using MCP protocol
 """
 from google.adk.agents import LlmAgent
+from resume_optimizer.mcp_client import mcp_client
+import asyncio
 
 
-def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
+def create_markdown_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
     """
-    Agent 8: LaTeX resume generation
+    Agent 8: Markdown resume generation
     Sequential agent that creates final resume document
     """
     
     return LlmAgent(
-        name="latex_formatter_agent",
+        name="markdown_formatter_agent",
         model=model,
-        description="Generates professional LaTeX resume using moderncv template",
+        description="Generates professional Markdown resume with ATS optimization",
         instruction="""
-        You are an expert LaTeX document formatter specializing in professional resumes.
+        You are an expert Markdown document formatter specializing in professional resumes.
         
-        Your task is to generate a complete, ATS-optimized LaTeX resume using the moderncv class.
+        Your task is to generate a complete, ATS-optimized Markdown resume that is clean and professional.
         
         **Inputs from state:**
         - `aligned_data`: Aligned content structure
@@ -26,29 +28,25 @@ def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         - `keyword_enhancements`: Keyword placement strategy
         - `profile_data`: Original profile information
         
-        **LaTeX Template Requirements:**
+        **MCP Tool Usage:**
+        You have access to the following MCP tools:
+        - validate_markdown: Validate Markdown syntax and structure
+        - get_resume_template (resource): Fetch professional Markdown templates
         
-        **1. Document Class & Packages:**
-        ```latex
-        \\documentclass[11pt,a4paper,sans]{{moderncv}}
-        \\moderncvstyle{{classic}}
-        \\moderncvcolor{{blue}}
-        \\usepackage[scale=0.85]{{geometry}}
-        \\usepackage[utf8]{{inputenc}}
+        Use these tools to ensure error-free Markdown generation.
+        
+        **Markdown Template Requirements:**
+        
+        **1. Header Format:**
+        ```markdown
+        # [FULL NAME]
+        
+        **[Professional Title]**
+        
+        [Email] | [Phone] | [LinkedIn] | [Location]
         ```
         
-        **2. Personal Information:**
-        ```latex
-        \\name{{First}}{{Last}}
-        \\title{{Professional Title}}
-        \\address{{Address Line 1}}{{Address Line 2}}{{City, Country}}
-        \\phone[mobile]{{+1~(555)~555~5555}}
-        \\email{{email@example.com}}
-        \\social[linkedin]{{linkedin-profile}}
-        \\social[github]{{github-username}}
-        ```
-        
-        **3. Document Structure:**
+        **2. Document Structure:**
         - Professional Summary/Objective
         - Work Experience (reverse chronological)
         - Education
@@ -56,27 +54,29 @@ def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         - Projects (if relevant)
         - Certifications (if any)
         
-        **4. Experience Formatting:**
-        ```latex
-        \\section{{Work Experience}}
-        \\cventry{{2020--Present}}{{Software Engineer}}{{Company Name}}{{City}}{{}}{{
-          \\begin{{itemize}}
-            \\item Achievement with metrics and keywords
-            \\item Another achievement demonstrating impact
-          \\end{{itemize}}
-        }}
+        **3. Experience Formatting:**
+        ```markdown
+        ## PROFESSIONAL EXPERIENCE
+        
+        ### **[Job Title]** | [Company Name]
+        *[Start Date] - [End Date] | [Location]*
+        
+        - Achievement with metrics and keywords (increased X by Y%)
+        - Another achievement demonstrating impact
+        - Technical accomplishment using specific tools/technologies
         ```
         
-        **5. Skills Formatting:**
-        ```latex
-        \\section{{Technical Skills}}
-        \\cvitem{{Languages}}{{Python, Java, JavaScript, SQL}}
-        \\cvitem{{Frameworks}}{{Django, React, Spring Boot}}
-        \\cvitem{{Cloud}}{{AWS, Azure, Docker, Kubernetes}}
-        \\cvitem{{Tools}}{{Git, Jenkins, JIRA, Confluence}}
+        **4. Skills Formatting:**
+        ```markdown
+        ## TECHNICAL SKILLS
+        
+        - **Languages:** Python, Java, JavaScript, SQL
+        - **Frameworks:** Django, React, Spring Boot
+        - **Cloud & Tools:** AWS, Docker, Kubernetes, Git
+        - **Databases:** PostgreSQL, MongoDB, Redis
         ```
         
-        **LaTeX Generation Guidelines:**
+        **Markdown Generation Guidelines:**
         
         **Content Integration:**
         - Use aligned content from previous stages
@@ -92,21 +92,22 @@ def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         - Skills grouped by category
         
         **ATS Optimization:**
-        - Use standard section headers
-        - Avoid special characters that break parsing
-        - Include keywords in context
-        - Maintain readable structure
+        - Use standard section headers (## UPPERCASE for major sections)
+        - Clean, simple formatting without excessive styling
+        - Include keywords naturally in context
+        - Maintain readable structure with proper spacing
         
-        **LaTeX Special Characters:**
-        - Escape: \\& \\% \\$ \\# \\_ \\{{ \\}}
-        - Use \\textasciitilde for ~
-        - Use \\textbackslash for \\
+        **Markdown Best Practices:**
+        - Use proper heading hierarchy (# for name, ## for sections, ### for subsections)
+        - Include horizontal rules (---) between major sections
+        - Use bold (**text**) and italic (*text*) sparingly for emphasis
+        - Ensure links are properly formatted: [Text](URL)
         
-        **Output Format (JSON with LaTeX):**
+        **Output Format (JSON with Markdown):**
         ```json
         {{
-            "latex_content": "\\\\documentclass[11pt,a4paper,sans]{{moderncv}}\\n...",
-            "file_name": "optimized_resume.tex",
+            "markdown_content": "# [Name]\\n\\n**[Title]**\\n\\n...",
+            "file_name": "optimized_resume.md",
             "sections_included": [
                 "summary",
                 "experience",
@@ -131,22 +132,29 @@ def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         
         **Quality Checklist:**
         - [ ] All personal info included
-        - [ ] No placeholder text (Name, Email, etc.)
-        - [ ] Proper LaTeX syntax (compilable)
+        - [ ] No placeholder text ([Name], [Email], etc.)
+        - [ ] Proper Markdown syntax
         - [ ] Keywords naturally integrated
         - [ ] Quantifiable achievements included
         - [ ] Consistent formatting throughout
-        - [ ] 1-2 pages maximum length
+        - [ ] Clean, professional appearance
         - [ ] ATS-friendly structure
         
         **Common Errors to Avoid:**
-        - Unescaped special characters
-        - Missing closing braces
+        - Broken links or malformed syntax
+        - Inconsistent heading levels
         - Inconsistent date formats
         - Generic bullet points without impact
         - Keyword stuffing
+        - Over-use of bold/italic formatting
         
-        Generate a complete, professional, compilable LaTeX resume.
+        Generate a complete, professional Markdown resume.
         """,
-        output_key="latex_content"  # Save to session state
+        output_key="markdown_content"  # Save to session state
     )
+
+
+# Keep backwards compatibility with old function name
+def create_latex_formatter_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
+    """Backwards compatibility wrapper"""
+    return create_markdown_formatter_agent(model)

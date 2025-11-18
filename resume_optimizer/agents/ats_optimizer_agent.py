@@ -1,9 +1,10 @@
 """
 Stage 4: ATS Optimizer Agent (Parallel Agent 1)
-Optimizes resume for ATS systems
+Optimizes resume for ATS systems using MCP protocol
 """
 from google.adk.agents import LlmAgent
-from resume_optimizer.tools import ATSScoringTool, MCPToolRequest
+from resume_optimizer.mcp_client import mcp_client
+import asyncio
 
 
 def create_ats_optimizer_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
@@ -54,7 +55,14 @@ def create_ats_optimizer_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
         - Skills (categorized)
         - Certifications (if relevant)
         
-        **5. Scoring Calculation:**
+        **5. MCP Tool Usage:**
+        You have access to the following MCP tools:
+        - calculate_ats_score: Calculate ATS compatibility score
+        - extract_keywords: Extract keywords from job description
+        
+        Use these tools by calling them with proper arguments.
+        
+        **6. Scoring Calculation:**
         Use ATS scoring formula:
         - Keyword Match: 35%
         - Skills Match: 30%

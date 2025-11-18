@@ -435,3 +435,7 @@ class ResumeParserTool:
         phone_pattern = r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
         matches = re.findall(phone_pattern, text)
         return matches[0] if matches else ""
+
+
+# Aliases for MCP server compatibility
+KeywordExtractorTool = KeywordExtractorToolEnhanced

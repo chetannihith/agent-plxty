@@ -1,10 +1,13 @@
 """
-Agent-to-Agent (A2A) Protocol Bridge
+Agent-to-Agent (A2A) Protocol Bridge with MCP Integration
 
 Wraps CrewAI agents for seamless integration with Google ADK workflow
+Implements proper MCP JSON-RPC protocol for tool invocation
 """
 from typing import Dict, Any
 from pydantic import BaseModel
+from resume_optimizer.mcp_client import mcp_client
+import asyncio
 
 
 class A2AEnvelope(BaseModel):
@@ -126,6 +129,129 @@ class A2ABridge:
         )
         
         return envelope.dict()
+    
+    @staticmethod
+    async def call_mcp_tool(
+        tool_name: str,
+        parameters: Dict[str, Any],
+        server_name: str = "resume-tools"
+    ) -> Dict[str, Any]:
+        """
+        Call MCP tool using proper JSON-RPC protocol.
+        
+        REPLACES OLD format_tool_request() method with proper MCP implementation.
+        
+        Args:
+            tool_name: MCP tool name (e.g., "calculate_ats_score", "extract_keywords")
+            parameters: Tool arguments (validated against JSON Schema)
+            server_name: Target MCP server
+            
+        Returns:
+            Tool execution result from MCP server
+            
+        Example:
+            result = await A2ABridge.call_mcp_tool(
+                tool_name="extract_keywords",
+                parameters={"text": job_description}
+            )
+        """
+        result = await mcp_client.call_tool(
+            tool_name=tool_name,
+            arguments=parameters,
+            server_name=server_name
+        )
+        
+        return result
+    
+    @staticmethod
+    async def get_available_tools(server_name: str = "resume-tools") -> list:
+        """
+        Discover tools via MCP protocol.
+        
+        Uses JSON-RPC tools/list to get available tools with schemas.
+        
+        Args:
+            server_name: Target MCP server
+            
+        Returns:
+            List of tool definitions with JSON schemas
+        """
+        return await mcp_client.list_tools(server_name)
+    
+    @staticmethod
+    async def get_mcp_resource(
+        uri: str,
+        server_name: str = "resume-tools"
+    ) -> str:
+        """
+        Fetch MCP resource (e.g., templates).
+        
+        Args:
+            uri: Resource URI (e.g., "template://resume/professional")
+            server_name: Target MCP server
+            
+        Returns:
+            Resource content
+        """
+        return await mcp_client.get_resource(uri, server_name)
+    
+    @staticmethod
+    async def get_mcp_prompt(
+        prompt_name: str,
+        arguments: Dict[str, Any],
+        server_name: str = "resume-tools"
+    ) -> str:
+        """
+        Get MCP prompt template.
+        
+        Args:
+            prompt_name: Name of prompt
+            arguments: Prompt parameters
+            server_name: Target MCP server
+            
+        Returns:
+            Rendered prompt text
+        """
+        return await mcp_client.get_prompt(prompt_name, arguments, server_name)
+
+
+# Example usage in workflow:
+"""
+# In orchestrator.py Stage 1:
+
+from .a2a_bridge import A2ABridge, A2AEnvelope
+
+# Prepare request
+request_data = {"job_url": job_url}
+
+# Call CrewAI agent
+crew_output = self.job_extractor.extract_job_description(job_url)
+
+# Wrap in A2A envelope
+envelope = A2ABridge.wrap_crewai_output(
+    agent_name="job_description_extractor",
+    agent_role="web_scraper",
+    crew_output=crew_output,
+    request_data=request_data
+)
+
+# Store in Google ADK context
+ctx.session.state["job_description"] = A2ABridge.unwrap_for_google_adk(envelope)
+
+# MCP Tool Usage Example:
+keywords = await A2ABridge.call_mcp_tool(
+    tool_name="extract_keywords",
+    parameters={"text": job_description}
+)
+
+ats_score = await A2ABridge.call_mcp_tool(
+    tool_name="calculate_ats_score",
+    parameters={
+        "resume_text": resume_content,
+        "job_description": job_description
+    }
+)
+"""
 
 
 # Example usage in workflow:
